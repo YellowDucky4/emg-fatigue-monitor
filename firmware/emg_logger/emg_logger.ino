@@ -1,16 +1,21 @@
+const unsigned long INTERVAL_US = 1000;
+unsigned long lastSample = 0;
+
 void setup() {
   // put your setup code here, to run once:
-  Serial.begin(115200);
+  Serial.begin(500000);
   analogReadResolution(14);
-  Serial.println("timestamp_ms,value");
+  lastSample = micros();
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
-  unsigned long t = millis();
-  int value = analogRead(A0);
-  Serial.print(t);
-  Serial.print(",");
-  Serial.println(value);
-  delay(2);
+  unsigned long now = micros();
+  if (now - lastSample >= INTERVAL_US) {
+    lastSample += INTERVAL_US);
+    int value = analogRead(A0);
+    Serial.print(now);
+    Serial.print(",");
+    Serial.println(value);
+  }
 }
