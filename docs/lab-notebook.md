@@ -1,5 +1,32 @@
 # Lab Notebook
 
+## 2026-09-07
+- Opened first Jupyter notebook (analysis/emg_pipeline.ipynb); loaded test_log.csv with pandas
+- Hit KeyError on 'timestamp_ms' — log_serial.py's `"timestamp" not in line` filter was stripping the header row before writing, so pandas treated the first data row as column names. Worked around with `header=None, names=[...]`; fixed the script to write its own header row directly
+- Plotted the full 15 s recording: six clean flex bursts, stable baseline between them, consistent amplitudes, no drift
+- Realized the signal is RAW, not ENV — it swings symmetrically to ~11,000 and ~5,000 around a ~8,150 baseline. An envelope can only rise from rest. 8,192 is exactly half of 16,383, i.e. mid-supply bias, the signature of an AC-coupled bipolar signal. Confirmed the Link Shield switch was on RAW
+- This retroactively corrects Saturday's read of the 5,884 sample as a dropout artifact — on a bipolar signal, sub-baseline values are just the negative half of the waveform. Not an artifact
+- RAW is the required mode for this project: median frequency depends on the frequency content of the signal, and ENV destroys that by rectifying and smoothing before it ever reaches the ADC
+- Identified a sampling rate problem: 500 Hz sampling gives a Nyquist ceiling of 250 Hz, but sEMG carries meaningful power to ~450 Hz. Content above 250 Hz aliases down and injects phantom low-frequency energy into the band median frequency is computed from. Not recoverable in post-processing — has to be prevented at acquisition
+- Rewrote the sketch to sample at 1000 Hz using micros()-based scheduling instead of delay(). Used `lastSample += INTERVAL_US` rather than `= now` so loop overhead doesn't accumulate into timing drift
+- Raised baud from 115200 to 500000. At ~1000 lines/s × ~13 chars/line, 115200 baud (~11,520 char/s) would have saturated, blocked on Serial.print, and silently throttled the sample rate below 1000 Hz
+- Renamed timestamp_ms → timestamp_us across the sketch, log_serial.py, and notebook. A units mix-up here would throw median frequency off by 1000×
+- Next session: verify consecutive timestamps differ by ~1000 µs, then record a full curls-to-fatigue set
+
+## 2026-09-05
+- Placed electrodes and captured first live EMG signal
+- Corrected a placement misunderstanding: in the standard no-cable setup, all three pads snap onto the sensor board and the whole board sits on the muscle belly. The "REF on a bony prominence" guidance only applies when using the separate MyoWare Reference Cable, which I don't have
+- Baseline at rest ~8,150; flex peaks 9,000–10,000; fast, clean return to baseline. Peak amplitude scaled with flex intensity, consistent with motor unit recruitment and firing rate increasing with force
+- Investigated the noisy resting baseline systematically:
+  - Ruled out physiological tremor — pattern unchanged with the arm fully supported and relaxed
+  - Ruled out simple 60 Hz aliasing — pattern barely changed between delay(10) and delay(2), which a 5× sampling rate change should have shifted
+  - Found noise *increased* with distance from the PC, suggesting the long USB cable is acting as an antenna for ambient EMI rather than the PC being the source. Mitigated by keeping the cable coiled and near grounded equipment; full removal deferred to the bandpass/notch stage in software
+- Built the CSV logging path: Arduino prints `timestamp,value`; log_serial.py (pyserial) reads the port and writes to data/raw/test_log.csv
+- Debugging along the way:
+  - PermissionError 13 on COM3 — the port was held open. Closing the Serial Monitor/Plotter panels wasn't enough; the entire Arduino IDE had to be closed
+  - SAM-BA upload failure at 76% of flash write — resolved on retry, likely a transient USB hiccup
+  - First CSV came out as timestamps with trailing commas and no values — caused by a Serial.println where Serial.print belonged, splitting each row across two lines
+
 ## 2026-09-04
 - Set up Arduino IDE + board support for Uno R4 WiFi; confirmed working with Blink sketch
 - Installed Python (numpy, scipy, matplotlib, pandas, jupyter) after Citrix/MATLAB access proved impractical
@@ -7,6 +34,11 @@
 - Wired photoresistor module to A0; hit "serial port busy" and "invalid serial port" upload errors caused by Serial Plotter holding the COM port open during upload — resolved by closing Plotter before uploading
 - Got clean analog readings: ~3700 baseline, ~11000 when covered, at 14-bit resolution
 - Observed persistent baseline noise (~hundreds of counts) even under constant light — likely 60 Hz mains flicker, directly motivating the notch filter in the processing pipeline
+- Created the GitHub repo (emg-fatigue-monitor), cloned via GitHub Desktop, set up folder structure (firmware/, analysis/, data/raw, data/processed, docs/images) with .gitkeep placeholders since git doesn't track empty directories
+- Assembled the MyoWare stack: Link Shield onto Muscle Sensor, Arduino Shield onto Uno R4, TRS cable into shield port A0
+- Couldn't seat the Link Shield at first — the Muscle Sensor ships with a placeholder shield attached over the snap connectors that has to be removed first
+- VIN and ENV LEDs were initially unlit; reseating the shield and TRS connections fixed it
+- With no electrodes attached, readings pinned near 16,000 and swung wildly — expected behavior for a high-gain differential amplifier with floating inputs acting as antennas
 
 ## 2026-09-03
 - Finalized hardware selection: MyoWare 2.0 Muscle Sensor, Link Shield, Arduino Shield, Uno R4 WiFi
