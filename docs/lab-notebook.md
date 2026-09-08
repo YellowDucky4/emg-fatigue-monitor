@@ -1,5 +1,20 @@
 # Lab Notebook
 
+## 2026-09-08
+- Verified the micros() scheduling from last session: intervals were exactly 1000 µs with zero standard deviation. Timing logic confirmed correct
+- But only 820 samples arrived in a 15 s window instead of ~15,000. Deltas were uniformly 1000 µs with no gaps, meaning the samples were contiguous — the capture stopped early rather than dropping samples throughout
+- Instrumented log_serial.py with elapsed-time and line-count printouts. Result: elapsed 15.2 s, 820 lines. The loop ran its full duration but data stopped arriving after ~0.8 s. Without this, "820 rows" was ambiguous between two unrelated failure modes
+- Controlled test: dropped INTERVAL_US to 2000 (500 Hz) and got 7,757 lines over 15 s — a clean sustained 500 Hz. This isolated the fault as rate-dependent throughput, not a broken connection, bad sketch, or hardware fault
+- Two bottlenecks identified, both in the 1 ms per-sample budget:
+  - Arduino side: converting a 7–8 digit micros() timestamp to ASCII on every sample. Removed timestamps entirely — justified because the interval was already proven constant, so sample time is reconstructable from row index at a known fixed rate
+  - Python side: pyserial's readline() scans byte-by-byte for a newline, and doing that plus a csv.writer call 1000×/second exceeded what the receive loop could sustain. Rewrote to read ser.in_waiting bytes in bulk into a bytearray during capture, then split and filter after the clock stops
+- Added ser.reset_input_buffer() after the 2 s startup sleep so data accumulated during board reset isn't counted
+- Final result: 14,994 samples in 15.001 s = 999.5 Hz sustained. Nyquist ceiling now 500 Hz, above the ~450 Hz upper bound of sEMG content
+- Why this was worth a full session: with timestamps removed, the analysis assumes the sample rate. An actual rate of 750 Hz against an assumed 1000 Hz would inflate every computed frequency by ~33%, including median frequency. The error would be invisible in the output — plots would look fine and the numbers would be wrong
+- Also lost time to an unsaved log_serial.py: the edited version sat in the VS Code buffer while Python kept running the old file from disk. Zero rows written, no error raised. Check the tab's unsaved-changes dot before blaming the logic
+- Prepared for the first real trial: OUTPUT_FILE renamed per-recording to avoid overwriting, DURATION_SECONDS set to 90
+- Next session: isometric preacher-bench hold to failure. Chose isometric over repeated curls — no movement means no motion artifact, and continuous activation means every analysis window has usable spectral content
+
 ## 2026-09-07
 - Opened first Jupyter notebook (analysis/emg_pipeline.ipynb); loaded test_log.csv with pandas
 - Hit KeyError on 'timestamp_ms' — log_serial.py's `"timestamp" not in line` filter was stripping the header row before writing, so pandas treated the first data row as column names. Worked around with `header=None, names=[...]`; fixed the script to write its own header row directly
